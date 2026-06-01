@@ -28,6 +28,7 @@ let apiKey = localStorage.getItem("gemini_key") || "";
 let history = [];        // [{role:'user'|'model', parts:[{text}]}]
 let listening = false;
 let recognition = null;
+let busy = false;        // מונע עיבוד כפול של אותה הודעה
 
 // ---------- אתחול ----------
 function init() {
@@ -69,7 +70,10 @@ el("settingsBtn").addEventListener("click", () => {
 // ---------- קלט טקסט ----------
 sendBtn.addEventListener("click", sendText);
 textInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); sendText(); }
+  if (e.key === "Enter" && !e.isComposing && !e.repeat) {
+    e.preventDefault();
+    sendText();
+  }
 });
 function sendText() {
   const t = textInput.value.trim();
@@ -94,7 +98,7 @@ function startListening() {
     listening = true;
     talkBtn.classList.add("listening");
     setStatus("מקשיב... דבר עכשיו");
-    if (window.speechSynthesis) speechSynthesis.cancel();
+    stopSpeaking();
   };
   recognition.onresult = (e) => {
     const text = e.results[0][0].transcript.trim();
@@ -122,6 +126,8 @@ function stopListening() {
 
 // ---------- זרימת שיחה ----------
 async function handleUser(text) {
+  if (busy) return;          // כבר מעבדים הודעה — מתעלמים מטריגר כפול
+  busy = true;
   addBubble(text, "user");
   setStatus("חושב...");
   talkBtn.classList.add("thinking");
@@ -138,6 +144,7 @@ async function handleUser(text) {
   } finally {
     talkBtn.classList.remove("thinking");
     sendBtn.disabled = false;
+    busy = false;
   }
 }
 
@@ -167,9 +174,63 @@ async function askGemini(userText) {
 }
 
 // ---------- הקראה ----------
+// מנוע ראשי: Google Translate TTS (עברית אמיתית, ללא תלות במערכת, ללא מפתח).
+// נפילה אחורה: מנוע ההקראה של הדפדפן.
+let ttsAudio = null;
+
+function stopSpeaking() {
+  if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+}
+
+function chunkText(text, max) {
+  // Google TTS מוגבל באורך — מפצלים למקטעים לפי גבולות מילים.
+  const words = text.replace(/\s+/g, " ").trim().split(" ");
+  const chunks = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > max) {
+      if (cur) chunks.push(cur.trim());
+      cur = w;
+    } else {
+      cur += " " + w;
+    }
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+  return chunks.length ? chunks : [text];
+}
+
 function speak(text) {
+  if (!text) return;
+  stopSpeaking();
+  const chunks = chunkText(text, 180);
+  let i = 0;
+  let fellBack = false;
+
+  const fallback = () => {
+    if (fellBack) return;
+    fellBack = true;
+    speakBrowser(text);
+  };
+
+  const playNext = () => {
+    if (i >= chunks.length) return;
+    const url =
+      "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=iw&q=" +
+      encodeURIComponent(chunks[i]);
+    ttsAudio = new Audio();
+    ttsAudio.src = url;
+    ttsAudio.onended = () => { i++; playNext(); };
+    ttsAudio.onerror = () => { if (i === 0) fallback(); };
+    const p = ttsAudio.play();
+    if (p && p.catch) p.catch(() => { if (i === 0) fallback(); });
+  };
+
+  playNext();
+}
+
+function speakBrowser(text) {
   if (!window.speechSynthesis) return;
-  speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "he-IL";
   const voices = speechSynthesis.getVoices();

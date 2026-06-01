@@ -1,5 +1,5 @@
 /* Service Worker — מאפשר התקנה ופתיחה מהירה. */
-const CACHE = "kesher-haxam-v2";
+const CACHE = "kesher-haxam-v3";
 const ASSETS = [
   "./",
   "./index.html",
