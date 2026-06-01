@@ -21,6 +21,8 @@ const keyInput = el("keyInput");
 const conversation = el("conversation");
 const statusEl = el("status");
 const talkBtn = el("talkBtn");
+const textInput = el("textInput");
+const sendBtn = el("sendBtn");
 
 let apiKey = localStorage.getItem("gemini_key") || "";
 let history = [];        // [{role:'user'|'model', parts:[{text}]}]
@@ -63,6 +65,18 @@ el("settingsBtn").addEventListener("click", () => {
     show(setupScreen);
   }
 });
+
+// ---------- קלט טקסט ----------
+sendBtn.addEventListener("click", sendText);
+textInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); sendText(); }
+});
+function sendText() {
+  const t = textInput.value.trim();
+  if (!t) return;
+  textInput.value = "";
+  handleUser(t);
+}
 
 // ---------- כפתור דיבור ----------
 talkBtn.addEventListener("click", () => {
@@ -111,17 +125,19 @@ async function handleUser(text) {
   addBubble(text, "user");
   setStatus("חושב...");
   talkBtn.classList.add("thinking");
+  sendBtn.disabled = true;
   try {
     const reply = await askGemini(text);
     addBubble(reply, "ai");
     speak(reply);
-    setStatus("לחץ על הכפתור ודבר");
+    setStatus("כתוב הודעה או לחץ על המיקרופון");
   } catch (err) {
     const msg = (err && err.message) ? err.message : String(err);
     addBubble("שגיאה: " + msg, "ai");
     setStatus("אירעה שגיאה");
   } finally {
     talkBtn.classList.remove("thinking");
+    sendBtn.disabled = false;
   }
 }
 

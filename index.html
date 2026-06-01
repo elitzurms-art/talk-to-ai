@@ -35,12 +35,12 @@
 
     <main id="conversation"></main>
 
-    <div id="status" class="status">לחץ על הכפתור ודבר</div>
+    <div id="status" class="status">כתוב הודעה או לחץ על המיקרופון</div>
 
     <footer>
-      <button id="talkBtn" class="talk" aria-label="דבר">
-        <span class="mic">🎙️</span>
-      </button>
+      <button id="talkBtn" class="mic-btn" aria-label="דבר בקול" title="דבר בקול">🎙️</button>
+      <input id="textInput" type="text" placeholder="כתוב הודעה ל-AI..." autocomplete="off" />
+      <button id="sendBtn" class="send-btn" aria-label="שלח" title="שלח">➤</button>
     </footer>
   </div>
 
