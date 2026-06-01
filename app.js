@@ -52,6 +52,7 @@ function saveKey() {
   if (!v) { keyInput.focus(); return; }
   apiKey = v;
   localStorage.setItem("gemini_key", v);
+  unlockAudio();
   show(appScreen);
 }
 
@@ -76,6 +77,7 @@ textInput.addEventListener("keydown", (e) => {
   }
 });
 function sendText() {
+  unlockAudio();
   const t = textInput.value.trim();
   if (!t) return;
   textInput.value = "";
@@ -84,6 +86,7 @@ function sendText() {
 
 // ---------- כפתור דיבור ----------
 talkBtn.addEventListener("click", () => {
+  unlockAudio();
   if (listening) stopListening();
   else startListening();
 });
@@ -176,10 +179,36 @@ async function askGemini(userText) {
 // ---------- הקראה ----------
 // מנוע ראשי: Google Translate TTS (עברית אמיתית, ללא תלות במערכת, ללא מפתח).
 // נפילה אחורה: מנוע ההקראה של הדפדפן.
-let ttsAudio = null;
+const ttsAudio = new Audio();
+let audioUnlocked = false;
+
+// "פותח" את האודיו במחווה הראשונה של המשתמש (דרישת דפדפן להשמעה אוטומטית).
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  try {
+    ttsAudio.src = makeSilentWav();
+    const p = ttsAudio.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) { /* מתעלמים */ }
+}
+
+function makeSilentWav() {
+  const sr = 8000, n = 400; // ~0.05 שניות שקט
+  const buf = new ArrayBuffer(44 + n);
+  const v = new DataView(buf);
+  const s = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  s(0, "RIFF"); v.setUint32(4, 36 + n, true); s(8, "WAVE");
+  s(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  s(36, "data"); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+}
 
 function stopSpeaking() {
-  if (ttsAudio) { ttsAudio.pause(); ttsAudio = null; }
+  try { ttsAudio.pause(); } catch (e) {}
   if (window.speechSynthesis) speechSynthesis.cancel();
 }
 
@@ -215,11 +244,9 @@ function speak(text) {
 
   const playNext = () => {
     if (i >= chunks.length) return;
-    const url =
+    ttsAudio.src =
       "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=iw&q=" +
       encodeURIComponent(chunks[i]);
-    ttsAudio = new Audio();
-    ttsAudio.src = url;
     ttsAudio.onended = () => { i++; playNext(); };
     ttsAudio.onerror = () => { if (i === 0) fallback(); };
     const p = ttsAudio.play();
