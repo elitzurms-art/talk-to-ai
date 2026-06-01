@@ -32,6 +32,8 @@ let history = [];        // [{role:'user'|'model', parts:[{text}]}]
 let listening = false;
 let recognition = null;
 let busy = false;        // מונע עיבוד כפול של אותה הודעה
+let handsFree = false;   // מצב שיחה רציף (מקשיב אוטומטית)
+let speaking = false;    // ה-AI מקריא כרגע
 
 // ---------- אתחול ----------
 function init() {
@@ -87,14 +89,25 @@ function sendText() {
   handleUser(t);
 }
 
-// ---------- כפתור דיבור ----------
+// ---------- כפתור מיקרופון = הפעלה/כיבוי מצב שיחה רציף ----------
 talkBtn.addEventListener("click", () => {
   unlockAudio();
-  if (listening) stopListening();
-  else startListening();
+  if (handsFree) {
+    handsFree = false;
+    stopRecognition();
+    talkBtn.classList.remove("listening", "active");
+    setStatus("מצב שיחה כבוי. לחץ על המיקרופון כדי לדבר רצוף");
+  } else {
+    handsFree = true;
+    talkBtn.classList.add("active");
+    setStatus("מקשיב... דבר");
+    startRecognition();
+  }
 });
 
-function startListening() {
+function startRecognition() {
+  if (busy || speaking || !handsFree) return;
+  if (recognition) { try { recognition.abort(); } catch (e) {} }
   recognition = new SR();
   recognition.lang = "he-IL";
   recognition.interimResults = false;
@@ -103,8 +116,7 @@ function startListening() {
   recognition.onstart = () => {
     listening = true;
     talkBtn.classList.add("listening");
-    setStatus("מקשיב... דבר עכשיו");
-    stopSpeaking();
+    setStatus("מקשיב... דבר");
   };
   recognition.onresult = (e) => {
     const text = e.results[0][0].transcript.trim();
@@ -112,50 +124,68 @@ function startListening() {
   };
   recognition.onerror = (e) => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      handsFree = false;
+      talkBtn.classList.remove("active");
       setStatus("צריך לאשר גישה למיקרופון");
-    } else if (e.error === "no-speech") {
-      setStatus("לא שמעתי כלום, נסה שוב");
-    } else {
-      setStatus("שגיאת זיהוי: " + e.error);
     }
+    // no-speech / aborted — onend יחזיר להקשבה אוטומטית
   };
   recognition.onend = () => {
     listening = false;
     talkBtn.classList.remove("listening");
+    // מצב רציף: אם לא מדברים ולא מעבדים — חוזרים להקשיב
+    if (handsFree && !speaking && !busy) {
+      setTimeout(() => {
+        if (handsFree && !speaking && !busy) startRecognition();
+      }, 300);
+    }
   };
-  recognition.start();
+  try { recognition.start(); } catch (e) {}
 }
 
-function stopListening() {
-  if (recognition) recognition.stop();
+function stopRecognition() {
+  if (recognition) { try { recognition.abort(); } catch (e) {} }
+  listening = false;
+  talkBtn.classList.remove("listening");
+}
+
+function resumeListening() {
+  if (handsFree && !busy && !speaking) startRecognition();
 }
 
 // ---------- זרימת שיחה ----------
 async function handleUser(text) {
   if (busy) return;          // כבר מעבדים הודעה — מתעלמים מטריגר כפול
   busy = true;
+  if (recognition) { try { recognition.abort(); } catch (e) {} }
   addBubble(text, "user");
   setStatus("חושב...");
   talkBtn.classList.add("thinking");
   sendBtn.disabled = true;
+  let toSpeak = null;
   try {
     const reply = await askGemini(text);
     // מפצלים: מימין ל-||| התעתיק להקראה, משמאלו העברית לתצוגה.
     const idx = reply.indexOf("|||");
     const display = idx >= 0 ? reply.slice(0, idx).trim() : reply;
-    const toSpeak = idx >= 0 ? reply.slice(idx + 3).trim() : reply;
+    toSpeak = idx >= 0 ? reply.slice(idx + 3).trim() : reply;
     addBubble(display, "ai");
-    speak(toSpeak);
-    setStatus("כתוב הודעה או לחץ על המיקרופון");
+    setStatus(handsFree ? "מקשיב..." : "כתוב הודעה או לחץ על המיקרופון");
   } catch (err) {
-    const msg = (err && err.message) ? err.message : String(err);
-    addBubble("שגיאה: " + msg, "ai");
+    const m = (err && err.message) ? err.message : String(err);
+    const friendly = /RATE_LIMIT|quota|rate|429/i.test(m)
+      ? "רגע, יותר מדי בקשות כרגע. נסה שוב בעוד כחצי דקה 🙏"
+      : "שגיאה: " + m;
+    addBubble(friendly, "ai");
     setStatus("אירעה שגיאה");
   } finally {
     talkBtn.classList.remove("thinking");
     sendBtn.disabled = false;
     busy = false;
   }
+  // קודם הקראה, ובסיומה חוזרים להקשיב (במצב רציף)
+  if (toSpeak) speak(toSpeak, resumeListening);
+  else resumeListening();
 }
 
 async function askGemini(userText) {
@@ -176,6 +206,7 @@ async function askGemini(userText) {
   const data = await res.json();
   if (!res.ok) {
     history.pop();
+    if (res.status === 429) throw new Error("RATE_LIMIT");
     throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
   }
   const cand = data.candidates && data.candidates[0];
@@ -241,8 +272,9 @@ function chunkText(text, max) {
   return chunks.length ? chunks : [text];
 }
 
-function speak(text) {
-  if (!text || !window.speechSynthesis) return;
+function speak(text, onDone) {
+  const done = () => { speaking = false; if (onDone) onDone(); };
+  if (!text || !window.speechSynthesis) { done(); return; }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   // קול אנגלי הוגה היטב את התעתיק הלטיני — וכך זה נשמע עברית.
@@ -250,6 +282,9 @@ function speak(text) {
   const en = voices.find((v) => v.lang && /^en/i.test(v.lang));
   if (en) { u.voice = en; u.lang = en.lang; }
   u.rate = 0.95;
+  speaking = true;
+  u.onend = done;
+  u.onerror = done;
   speechSynthesis.speak(u);
 }
 

@@ -155,6 +155,11 @@ footer {
   transition: transform .1s;
 }
 .mic-btn:active { transform: scale(.92); }
+.mic-btn.active {
+  background: linear-gradient(145deg, var(--accent), var(--accent2));
+  color: #04263a;
+  border-color: transparent;
+}
 .mic-btn.listening {
   background: linear-gradient(145deg, #f87171, #ef4444);
   color: #fff;
