@@ -5,10 +5,13 @@
 
 const MODEL = "gemini-2.5-flash";
 const SYSTEM_PROMPT =
-  "אתה עוזר קולי חכם בעברית בתוך מכשיר קשר. " +
-  "המשתמש מדבר אליך ושומע אותך בקול, אז ענה בעברית, בקצרה ובטבעיות — כמו בשיחה. " +
-  "הימנע מרשימות ארוכות, סימני מרקדאון או אימוג'ים, כי הכל מוקרא בקול. " +
-  "אם משהו לא ברור, בקש מהמשתמש לחזור.";
+  "אתה עוזר קולי חכם בעברית בתוך מכשיר קשר. ענה תמיד קצר, טבעי ובעברית בלבד. " +
+  "בלי רשימות ארוכות, בלי מרקדאון, בלי אימוג'ים. " +
+  "פורמט התשובה שלך חייב להיות בדיוק כך: קודם התשובה בעברית, אחר כך הסימן ||| , " +
+  "ואז אותה תשובה בדיוק בתעתיק פונטי באותיות לטיניות (כדי שמנוע הקראה אנגלי יוכל להגות אותה נכון). " +
+  "התעתיק צריך לשקף את ההגייה העברית כולל תנועות. " +
+  "דוגמה: שלום, איך אפשר לעזור?|||shalom, eikh efshar laazor? " +
+  "אל תוסיף שום דבר אחרי התעתיק.";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -137,8 +140,12 @@ async function handleUser(text) {
   sendBtn.disabled = true;
   try {
     const reply = await askGemini(text);
-    addBubble(reply, "ai");
-    speak(reply);
+    // מפצלים: מימין ל-||| התעתיק להקראה, משמאלו העברית לתצוגה.
+    const idx = reply.indexOf("|||");
+    const display = idx >= 0 ? reply.slice(0, idx).trim() : reply;
+    const toSpeak = idx >= 0 ? reply.slice(idx + 3).trim() : reply;
+    addBubble(display, "ai");
+    speak(toSpeak);
     setStatus("כתוב הודעה או לחץ על המיקרופון");
   } catch (err) {
     const msg = (err && err.message) ? err.message : String(err);
@@ -162,6 +169,8 @@ async function askGemini(userText) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: history,
+      // מכבים "חשיבה" כדי שהמודל לא יפלוט הנמקות באנגלית לתוך התשובה.
+      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
   const data = await res.json();
@@ -171,7 +180,10 @@ async function askGemini(userText) {
   }
   const cand = data.candidates && data.candidates[0];
   const parts = cand && cand.content && cand.content.parts;
-  const text = parts ? parts.map((p) => p.text || "").join("").trim() : "";
+  // מסננים חלקי "מחשבה" (thought) ולוקחים רק את טקסט התשובה.
+  const text = parts
+    ? parts.filter((p) => !p.thought).map((p) => p.text || "").join("").trim()
+    : "";
   history.push({ role: "model", parts: [{ text }] });
   return text || "(לא התקבלה תשובה)";
 }
@@ -230,30 +242,15 @@ function chunkText(text, max) {
 }
 
 function speak(text) {
-  if (!text) return;
-  stopSpeaking();
-  const chunks = chunkText(text, 180);
-  let i = 0;
-  let fellBack = false;
-
-  const fallback = () => {
-    if (fellBack) return;
-    fellBack = true;
-    speakBrowser(text);
-  };
-
-  const playNext = () => {
-    if (i >= chunks.length) return;
-    ttsAudio.src =
-      "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=iw&q=" +
-      encodeURIComponent(chunks[i]);
-    ttsAudio.onended = () => { i++; playNext(); };
-    ttsAudio.onerror = () => { if (i === 0) fallback(); };
-    const p = ttsAudio.play();
-    if (p && p.catch) p.catch(() => { if (i === 0) fallback(); });
-  };
-
-  playNext();
+  if (!text || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  // קול אנגלי הוגה היטב את התעתיק הלטיני — וכך זה נשמע עברית.
+  const voices = speechSynthesis.getVoices();
+  const en = voices.find((v) => v.lang && /^en/i.test(v.lang));
+  if (en) { u.voice = en; u.lang = en.lang; }
+  u.rate = 0.95;
+  speechSynthesis.speak(u);
 }
 
 function speakBrowser(text) {
