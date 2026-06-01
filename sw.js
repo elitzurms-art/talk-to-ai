@@ -1,5 +1,5 @@
 /* Service Worker — מאפשר התקנה ופתיחה מהירה. */
-const CACHE = "kesher-haxam-v4";
+const CACHE = "kesher-haxam-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -24,10 +24,19 @@ self.addEventListener("activate", (e) => {
   self.clients.claim();
 });
 
+// אסטרטגיה: network-first — תמיד מנסים להביא את הגרסה העדכנית מהרשת,
+// ונופלים למטמון רק כשאין אינטרנט. כך האתר תמיד מעודכן ברענון רגיל.
 self.addEventListener("fetch", (e) => {
+  if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
-  // רק קבצים של האפליקציה נשמרים במטמון. בקשות ל-Gemini תמיד דרך הרשת.
-  if (url.origin === location.origin) {
-    e.respondWith(caches.match(e.request).then((r) => r || fetch(e.request)));
-  }
+  if (url.origin !== location.origin) return; // בקשות חיצוניות (Gemini/הקראה) — ישר לרשת
+  e.respondWith(
+    fetch(e.request)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        return res;
+      })
+      .catch(() => caches.match(e.request))
+  );
 });
