@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>מכשיר קשר חכם</title>
+  <meta name="description" content="דבר עם AI בעברית — מכשיר קשר חכם" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- מסך הגדרת מפתח -->
+  <div id="setup" class="screen hidden">
+    <div class="card">
+      <h1>🛰️ מכשיר קשר חכם</h1>
+      <p>כדי להתחיל, הדבק מפתח <b>Gemini</b> חינמי. מוציאים אותו בחינם תוך דקה:</p>
+      <a class="link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">
+        קבל מפתח חינמי ↗
+      </a>
+      <input id="keyInput" type="password" placeholder="מדביקים כאן את המפתח (AIza...)" autocomplete="off" />
+      <button id="saveKey" class="btn primary">שמור והתחל</button>
+      <p class="hint">המפתח נשמר רק במכשיר שלך (בדפדפן) ולא נשלח לאף אחד חוץ מ-Google.</p>
+    </div>
+  </div>
+
+  <!-- מסך ראשי -->
+  <div id="app" class="screen hidden">
+    <header>
+      <span class="title">🛰️ מכשיר קשר חכם</span>
+      <button id="settingsBtn" class="icon-btn" title="הגדרות">⚙️</button>
+    </header>
+
+    <main id="conversation"></main>
+
+    <div id="status" class="status">לחץ על הכפתור ודבר</div>
+
+    <footer>
+      <button id="talkBtn" class="talk" aria-label="דבר">
+        <span class="mic">🎙️</span>
+      </button>
+    </footer>
+  </div>
+
+  <!-- שגיאת תאימות -->
+  <div id="unsupported" class="screen hidden">
+    <div class="card">
+      <h1>😕 הדפדפן לא נתמך</h1>
+      <p>זיהוי הדיבור עובד ב-<b>Google Chrome</b> או <b>Microsoft Edge</b> במחשב או באנדרואיד.</p>
+      <p>פתח את הדף הזה ב-Chrome ונסה שוב.</p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
